@@ -1,0 +1,202 @@
+{
+  "name": "CivicShield - Appeal Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appeal-submitted",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e32dc296-772e-5198-b3c8-2e0292d80f74",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "bda27815-2ae4-40f7-993a-2d9104d4edea"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/appeals/process",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({appeal_id: $json.body.appeal_id}) }}"
+      },
+      "id": "06678288-b89a-5a27-8a75-338bafb7da92",
+      "name": "Load appeal + verify chain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.appeal.complaint_id, event_type: 'appeal_workflow_processed', metadata: {appeal_id: $json.appeal.id, review_authority: $json.appeal.review_authority, deadline: $json.appeal.deadline, chain_valid: $json.chain.valid}}) }}"
+      },
+      "id": "c6e3eccd-aad4-5427-829e-02a7faad55fb",
+      "name": "Audit: appeal processed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $('Webhook').first().json.body.complaint_id, type: 'appeal_submitted', channels: ['email','sms'], skip_inapp: true}) }}"
+      },
+      "id": "9334000d-6c75-5c8d-bb7d-744cea1c8083",
+      "name": "Notification workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, appeal_id: $('Webhook').first().json.body.appeal_id}) }}",
+        "options": {}
+      },
+      "id": "bd7b0e28-7046-50dc-bbce-547e9529849b",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/appeal-submitted. Confirms the appeal record (original decision preserved), verifies the audit chain, writes a workflow audit event, notifies parties. Appeal deadline is tracked by the Deadline Monitor.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "f5a672ac-3054-59bd-ab73-3a1c83696e0b",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Load appeal + verify chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load appeal + verify chain": {
+      "main": [
+        [
+          {
+            "node": "Audit: appeal processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: appeal processed": {
+      "main": [
+        [
+          {
+            "node": "Notification workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

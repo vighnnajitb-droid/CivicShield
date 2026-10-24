@@ -1,0 +1,398 @@
+{
+  "name": "CivicShield - Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bf4956a7-7bf4-5bdf-b586-f045f547fc36",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "e90c6ffb-70d5-4915-9177-fdad63a90626"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/internal/complaints/{{ $json.body.complaint_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "2074295d-6bdc-5b62-b965-1e5ebf8d18e0",
+      "name": "Load case context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst req = $('Webhook').first().json.body; const c = J;\nconst T = {complaint_submitted:'Complaint submitted', complaint_acknowledged:'Complaint acknowledged', authority_assigned:'Authority assigned', information_requested:'Information requested',\n authority_transferred:'Authority transferred', deadline_approaching:'Deadline approaching', case_escalated:'Case escalated', response_received:'Response received', decision_made:'Decision made',\n appeal_submitted:'Appeal submitted', appeal_outcome:'Appeal outcome', legal_assistance:'Legal assistance available', citizen_replied:'Citizen replied', intake:'Complaint received'};\nconst title = T[req.type] || T[req.event] || 'Case update';\nconst text = `CivicShield ${c.code || ''}: ${title}. Status: ${c.status}. Open the app for details. (Automated message - not a finding about anyone's conduct.)`;\nconst out = [{json: {mode:'inapp', complaint_id: c.id, user_id: c.citizen_id, type: req.type || req.event, title, message: text, channel: 'in_app', skip: req.source === 'audit_trail' || !!req.skip_inapp}}];\nfor (const ch of (req.channels || [])) out.push({json: {mode:'external', complaint_id: c.id, user_id: c.citizen_id, type: req.type || req.event, title, message: `[${ch.toUpperCase()} simulated -> ${ch === 'email' ? c.citizen_email : c.citizen_phone}] ` + text, channel: ch + '_simulated'}});\nreturn out;"
+      },
+      "id": "bd36857c-dacb-51a6-9795-e71d3c9e7947",
+      "name": "Build messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ccfcc4f4-916f-445d-9a1f-c8fa2da5be46",
+              "leftValue": "={{ $json.mode === 'inapp' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c7c1328-41ba-5a7d-939c-4a1bdf2918fd",
+      "name": "In-app item?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d86a6e5-767b-4962-a209-6818d480ae3b",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4174a3e5-9b86-5df5-82b1-ae4b7e7f9c73",
+      "name": "Skip duplicate in-app?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({user_id: $json.user_id, complaint_id: $json.complaint_id, type: $json.type, title: $json.title, message: $json.message, channel: 'in_app'}) }}"
+      },
+      "id": "6e5a31fc-4151-5260-bbd7-e904ab28e039",
+      "name": "Write in-app notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, dispatched: true}) }}",
+        "options": {}
+      },
+      "id": "c628915e-9418-5dd4-b6d9-9a3fba2d7252",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({user_id: $json.user_id, complaint_id: $json.complaint_id, type: $json.type, title: $json.title, message: $json.message, channel: $json.channel}) }}"
+      },
+      "id": "056f6909-1ea8-53cf-bfda-ad52ce025fcb",
+      "name": "Write notification (external channel record)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2f2a3f86-9be9-45a1-ac07-3aa224954a2c",
+              "leftValue": "={{ $env.SMTP_ENABLED === 'true' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1727266e-c3e5-5917-acc2-761261827a80",
+      "name": "Real email enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM }}",
+        "toEmail": "={{ $env.NOTIFY_FALLBACK_EMAIL }}",
+        "subject": "={{ $json.title }}",
+        "text": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "511813bb-b440-5081-893f-bfcd034e9915",
+      "name": "Send Email (optional, needs SMTP credential)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1660,
+        520
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_YOUR_SMTP_CREDENTIAL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/notify. Builds the message, writes the in-app notification (mandatory) and simulated Email/WhatsApp/SMS deliveries. Set SMTP_ENABLED=true and attach SMTP credentials to the optional 'Send Email' node for real email.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "b3a2e768-f5d8-53cb-87fb-6cb8fba2a81f",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Load case context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load case context": {
+      "main": [
+        [
+          {
+            "node": "Build messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build messages": {
+      "main": [
+        [
+          {
+            "node": "In-app item?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In-app item?": {
+      "main": [
+        [
+          {
+            "node": "Skip duplicate in-app?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write notification (external channel record)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip duplicate in-app?": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write in-app notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write in-app notification": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write notification (external channel record)": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Real email enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real email enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Email (optional, needs SMTP credential)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

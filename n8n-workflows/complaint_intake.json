@@ -1,0 +1,459 @@
+{
+  "name": "CivicShield - Complaint Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "complaint-created",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d60eb78b-f743-578f-ad23-3ea84fb582bc",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "19eb29cb-eb2e-45bf-8307-79640c1f0375"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst b = J.body || {};\nif (!Number.isInteger(b.complaint_id) || !/^CS-\\d{4}-\\d{6}$/.test(b.code || '')) throw new Error('Invalid intake payload');\nreturn [{json: {complaint_id: b.complaint_id, code: b.code, received_at: new Date().toISOString(), workflow_execution: $execution.id}}];"
+      },
+      "id": "4f527b69-710c-54e8-beef-40da82c1648a",
+      "name": "Validate payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/ai-analysis",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, mode: 'triage'}) }}"
+      },
+      "id": "27be1089-1502-51e3-b4d2-66acdcb68bda",
+      "name": "Triage (advisory AI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/triage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $('Validate payload').first().json.complaint_id, triage: {priority: ($json.analysis||{}).advisory_priority || 'normal', label: ($json.analysis||{}).label}}) }}"
+      },
+      "id": "e415cdbe-caf2-52b4-80bc-7aac9a07087e",
+      "name": "Store advisory triage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const v = $('Validate payload').first().json; return [{json: {...v}}];"
+      },
+      "id": "65266f78-42a0-55c8-9902-a97d6b593ba8",
+      "name": "Keep context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/duplicate-check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id}) }}"
+      },
+      "id": "da275bcb-74f6-5d2f-a80e-5251f813c65d",
+      "name": "Duplicate detection workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst v = $('Keep context').first().json; return [{json: {...v, duplicates: J.count || 0}}];"
+      },
+      "id": "ccdbbc44-eaaf-5086-a2c0-452b0a0c9af1",
+      "name": "Keep context 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/authority-assignment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id}) }}"
+      },
+      "id": "dd1eecf6-83f6-5d39-93fa-53d92f183f0a",
+      "name": "Authority assignment workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst v = $('Keep context 2').first().json; return [{json: {...v, authority: J.authority && J.authority.name, deadlines: J.deadlines, audit_hash: J.audit_hash}}];"
+      },
+      "id": "abb6c40e-d9ef-5fa7-b5a6-9cda03ec16f6",
+      "name": "Keep context 3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, event_type: 'workflow_intake_completed', metadata: {n8n_execution: $json.workflow_execution, authority: $json.authority, duplicates_flagged: $json.duplicates}}) }}"
+      },
+      "id": "b103cecd-a214-5d3b-9646-afb53784cb91",
+      "name": "Audit: intake completed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst v = $('Keep context 3').first().json; return [{json: {...v, intake_audit_hash: J.current_hash}}];"
+      },
+      "id": "d06aeda5-37c2-58d8-96d4-61282ea8db80",
+      "name": "Keep context 4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, type: 'complaint_submitted', channels: ['email','sms'], skip_inapp: true}) }}"
+      },
+      "id": "fb57cdfe-007b-5f84-836f-fdd664d58107",
+      "name": "Notification workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, complaint: $('Keep context 4').first().json.code, authority: $('Keep context 4').first().json.authority, deadlines: $('Keep context 4').first().json.deadlines, duplicates_flagged: $('Keep context 4').first().json.duplicates, audit_hash: $('Keep context 4').first().json.intake_audit_hash, executed_by: 'n8n execution ' + $('Keep context 4').first().json.workflow_execution}) }}",
+        "options": {}
+      },
+      "id": "7da73970-ad0d-5836-b13f-75359e2d0a81",
+      "name": "Respond workflow result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/complaint-created. Orchestrates: validate -> duplicate detection -> authority assignment (+deadlines) -> audit event -> citizen notification -> result. Each step is its own n8n workflow.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "63d96e49-c2cf-567d-aa1d-fc8bfe0e8d2d",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate payload": {
+      "main": [
+        [
+          {
+            "node": "Triage (advisory AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triage (advisory AI)": {
+      "main": [
+        [
+          {
+            "node": "Store advisory triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store advisory triage": {
+      "main": [
+        [
+          {
+            "node": "Keep context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep context": {
+      "main": [
+        [
+          {
+            "node": "Duplicate detection workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate detection workflow": {
+      "main": [
+        [
+          {
+            "node": "Keep context 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep context 2": {
+      "main": [
+        [
+          {
+            "node": "Authority assignment workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authority assignment workflow": {
+      "main": [
+        [
+          {
+            "node": "Keep context 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep context 3": {
+      "main": [
+        [
+          {
+            "node": "Audit: intake completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit: intake completed": {
+      "main": [
+        [
+          {
+            "node": "Keep context 4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep context 4": {
+      "main": [
+        [
+          {
+            "node": "Notification workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond workflow result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

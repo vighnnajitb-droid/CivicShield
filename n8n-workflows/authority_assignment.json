@@ -1,0 +1,114 @@
+{
+  "name": "CivicShield - Authority Assignment",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "authority-assignment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1c7ef70f-0489-5027-9767-c75f7e5ff22c",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "4dd301d9-2cfa-4391-9a75-07352efb8515"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/assign",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.body.complaint_id}) }}"
+      },
+      "id": "b23432d7-ef79-513d-9c4d-2a9098d533b2",
+      "name": "Assign authority + start deadlines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "546f6b0d-9e7e-5c9b-9ae1-142ef2d2546f",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/authority-assignment. Picks the competent authority from the configurable hierarchy (category -> department, jurisdiction -> office), starts the acknowledgement/review/resolution deadlines, writes the audit event.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "578148cc-3d80-5b61-8ed8-06db1c74f1df",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Assign authority + start deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assign authority + start deadlines": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

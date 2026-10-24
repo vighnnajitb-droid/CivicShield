@@ -1,0 +1,314 @@
+{
+  "name": "CivicShield - Deadline Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "15d524cd-7772-5a64-9ecb-f2faac02cc72",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/internal/overdue",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a6be86a3-fcb1-5060-8899-520f448bd770",
+      "name": "Get overdue + approaching",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deadline-monitor-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3cb6e60-cc21-58c1-8f5c-ffcc2844221f",
+      "name": "Manual run (demo)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        500,
+        520
+      ],
+      "webhookId": "5c20945d-93d4-4176-9a44-86e1b11187c3"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst d = J; const out = [];\nfor (const o of d.overdue) out.push({json: {kind: 'overdue', ...o}});\nfor (const a of d.approaching) out.push({json: {kind: 'approaching', complaint_id: a.id, code: a.code, deadline: a.ack_deadline, authority_id: a.current_authority_id}});\nif (!out.length) out.push({json: {kind: 'none', checked_at: new Date().toISOString()}});\nreturn out;"
+      },
+      "id": "5feeb555-6643-5fd5-bf35-86fc96b04de8",
+      "name": "Split into items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9d46c2f8-8ac0-45ac-b479-f305fc63b0e1",
+              "leftValue": "={{ $json.kind === 'overdue' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "46ee7f42-0819-52e1-b556-6f3ae60e1197",
+      "name": "Overdue and escalable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/escalate-case",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id}) }}"
+      },
+      "id": "7c4949e2-ed88-5465-a10f-732eea2d1f05",
+      "name": "Run Automatic Escalation workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0f7c4433-4220-4381-abaf-ad5debb247cc",
+              "leftValue": "={{ $json.kind === 'approaching' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "692e11c5-5aa9-5ecc-aff7-12decefbc856",
+      "name": "Approaching deadline?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({authority_id: $json.authority_id, complaint_id: $json.complaint_id, type: 'deadline_approaching', title: 'Acknowledgement deadline approaching', message: $json.code + ' must be acknowledged by ' + $json.deadline}) }}"
+      },
+      "id": "fa2b0daa-925a-58d2-8514-26200b1a6813",
+      "name": "Notify authority: deadline approaching",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Schedule Trigger every 5 min (plus POST /webhook/deadline-monitor-run for demos). Finds overdue cases, calls the Automatic Escalation workflow for each, warns about approaching deadlines. Overdue != guilt.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "2d6b4617-b802-53b8-8cc6-406fd3eedbaa",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Get overdue + approaching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run (demo)": {
+      "main": [
+        [
+          {
+            "node": "Get overdue + approaching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get overdue + approaching": {
+      "main": [
+        [
+          {
+            "node": "Split into items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into items": {
+      "main": [
+        [
+          {
+            "node": "Overdue and escalable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Overdue and escalable?": {
+      "main": [
+        [
+          {
+            "node": "Run Automatic Escalation workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approaching deadline?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approaching deadline?": {
+      "main": [
+        [
+          {
+            "node": "Notify authority: deadline approaching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

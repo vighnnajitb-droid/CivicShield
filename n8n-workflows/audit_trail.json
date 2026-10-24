@@ -1,0 +1,290 @@
+{
+  "name": "CivicShield - Audit Trail",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "case-event",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "821b8958-1b5e-5a12-90f6-1349549f7d8d",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "5d565998-36bc-471a-a55f-1773dc6fda4d"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/internal/audit/verify/{{ $('Webhook').first().json.body.complaint_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "9af09c75-1beb-58d5-a83d-b736021940f4",
+      "name": "Verify hash chain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst ev = $('Webhook').first().json.body;\nreturn [{json: {valid: J.valid, events: J.events, head_hash: J.head_hash, broken_at: J.broken_at, complaint_id: ev.complaint_id, event: ev.event}}];"
+      },
+      "id": "f4b95318-9707-550f-8ce2-4e733b1e0a56",
+      "name": "Evaluate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a3705e87-d97a-434b-832a-9c2ed96acc64",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "31d068d8-15ec-5496-9ef3-9ba1c9a687a7",
+      "name": "Chain intact?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, type: $json.event, channels: ['email','whatsapp','sms'], source: 'audit_trail'}) }}"
+      },
+      "id": "a4d15baa-b2d3-569b-8575-be6be986bf01",
+      "name": "Fan out to Notifications workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, chain: 'intact', events: $('Evaluate').first().json.events, head_hash: $('Evaluate').first().json.head_hash}) }}",
+        "options": {}
+      },
+      "id": "fba5be05-aaf2-5da8-bc2f-085c5e8a24fc",
+      "name": "Respond intact",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({user_id: 1, complaint_id: $json.complaint_id, type: 'tamper_alert', title: 'Audit chain verification FAILED', message: 'Chain broken at ' + $json.broken_at}) }}"
+      },
+      "id": "5cba9bb5-463a-57a2-b549-9b21135a0d0e",
+      "name": "TAMPER ALERT to administrators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: false, chain: 'BROKEN'}) }}",
+        "options": {}
+      },
+      "id": "31131cd5-33b6-5416-9ab0-7915603e5997",
+      "name": "Respond broken",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/case-event. Called after every user action. Re-verifies the SHA-256 hash chain; if broken it raises a tamper alert. Valid events fan out to the Notifications workflow for external channels.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "258cc8c4-137d-5096-add1-0861c16dc5be",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify hash chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify hash chain": {
+      "main": [
+        [
+          {
+            "node": "Evaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate": {
+      "main": [
+        [
+          {
+            "node": "Chain intact?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chain intact?": {
+      "main": [
+        [
+          {
+            "node": "Fan out to Notifications workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TAMPER ALERT to administrators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fan out to Notifications workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond intact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TAMPER ALERT to administrators": {
+      "main": [
+        [
+          {
+            "node": "Respond broken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

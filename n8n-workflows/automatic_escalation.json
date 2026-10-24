@@ -1,0 +1,293 @@
+{
+  "name": "CivicShield - Automatic Escalation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "escalate-case",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b0e33b97-2b37-5ddb-9b37-91f1a28b1a2b",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "e9ae0522-1cc1-424a-b0ba-cf7d94fbe6d9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/escalate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.body.complaint_id}) }}"
+      },
+      "id": "ba88f26b-b285-5491-a211-ae3fdd92915a",
+      "name": "Escalate along configured hierarchy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst id = $('Webhook').first().json.body.complaint_id; return [{json: {...J, complaint_id: id}}];"
+      },
+      "id": "431cbb14-3a00-5381-b586-77ecfe480564",
+      "name": "Remember",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e611c5db-fabb-4239-a8e4-9e8a7ab7684c",
+              "leftValue": "={{ $json.exhausted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cf4893ea-cda0-5838-991c-0dbb97df7531",
+      "name": "Hierarchy exhausted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/legal-assistance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, reason: 'escalation_exhausted'}) }}"
+      },
+      "id": "887fafa8-684d-53de-8f1c-dccbf147dd94",
+      "name": "Legal Assistance workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, exhausted: true}) }}",
+        "options": {}
+      },
+      "id": "7fc4f272-b07d-5534-81e8-46b321d6252d",
+      "name": "Respond (exhausted)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, type: 'case_escalated', channels: ['email','sms','whatsapp'], skip_inapp: true}) }}"
+      },
+      "id": "cacd226d-7dcf-50b3-abf8-6e30296f3f24",
+      "name": "Notification workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, exhausted: false, new_authority: $('Remember').first().json.new && $('Remember').first().json.new.name, audit_hash: $('Remember').first().json.audit_hash}) }}",
+        "options": {}
+      },
+      "id": "d107f858-d634-57a5-bd23-9754628e042b",
+      "name": "Respond (escalated)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/escalate-case. Re-checks the escalation condition, escalates ONLY to the next authority in the configured hierarchy, records reason/deadline/audit hash, notifies citizen and authorities. At the top of the hierarchy it triggers Legal Assistance.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "408c803c-c360-5488-bc89-ea8b51d1fa8a",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Escalate along configured hierarchy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate along configured hierarchy": {
+      "main": [
+        [
+          {
+            "node": "Remember",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remember": {
+      "main": [
+        [
+          {
+            "node": "Hierarchy exhausted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hierarchy exhausted?": {
+      "main": [
+        [
+          {
+            "node": "Legal Assistance workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notification workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Legal Assistance workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond (exhausted)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond (escalated)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

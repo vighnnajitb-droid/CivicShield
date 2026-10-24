@@ -1,0 +1,449 @@
+{
+  "name": "CivicShield - AI Complaint Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-analysis",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "47011b23-90fd-529d-b543-6836ac68e6ae",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "458bccf5-19c0-4db3-824e-1aa07d22072d"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/internal/analysis-input/{{ $json.body.complaint_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "029f00d0-514f-528d-85ea-40d985122563",
+      "name": "Load complaint + permitted evidence metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/duplicates",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, store: false}) }}"
+      },
+      "id": "9bc36391-fa0d-5606-8237-56a397dc3f6d",
+      "name": "Duplicate / similarity check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst input = $('Load complaint + permitted evidence metadata').first().json; input.mode = $('Webhook').first().json.body.mode || 'draft';\nreturn [{json: {input, duplicates: J.flags || []}}];"
+      },
+      "id": "ed304b04-ba93-57e3-898e-5a6093025da1",
+      "name": "Merge input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7c756e32-bd0e-4ce4-8d2e-7b4406b6cdef",
+              "leftValue": "={{ !!$env.OPENAI_API_KEY }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d527404e-40b8-56f5-9fee-4413ce94f8dc",
+      "name": "LLM credentials present?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model: $env.OPENAI_MODEL || 'gpt-4o-mini', response_format: {type:'json_object'}, temperature: 0.1, messages: [{role:'system', content: 'You assist a citizen in structuring a complaint about alleged public-official misconduct. NEVER state or imply guilt; describe only what the citizen ALLEGES. Return JSON with keys: incident_summary, alleged_conduct, entities{people,organisations,amounts}, date_time{dates,times}, location, involved_roles, timeline[{when,event}], missing_information[]. Do not invent facts.'}, {role:'user', content: JSON.stringify({title: $json.input.title, description: $json.input.description, category: $json.input.category, evidence: $json.input.evidence})}]}) }}"
+      },
+      "id": "2ba1be88-7ad7-5ce4-84bd-0809aea4d856",
+      "name": "LLM analysis (OpenAI-compatible)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst d = $('Merge input').first().json;\nlet report = {};\ntry { report = JSON.parse(J.choices[0].message.content); } catch (e) { report = {incident_summary: 'LLM output could not be parsed', missing_information: ['Retry analysis']}; }\nreturn [{json: {label: 'AI-assisted analysis \\u2014 requires human review.', generated_by: 'llm:' + ($env.OPENAI_MODEL || 'gpt-4o-mini'), mode: d.input.mode, category_hint: d.input.category, report}}];"
+      },
+      "id": "3610bd46-3bc0-5a24-b5bc-bf0253421b75",
+      "name": "Normalise LLM output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/ai/normalise",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "4b9d6bf7-2495-57fa-b276-f7306693225f",
+      "name": "Guard-rail: strip guilt language",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst d = $('Merge input').first().json; const a = J;\na.report = a.report || {};\na.report.evidence_listed = (d.input.evidence||[]).map(e=>({evidence_id:e.id, filename:e.original_filename, sha256:e.sha256}));\na.report.duplicate_warning = d.duplicates.length ? 'Similar report(s) exist. They are flagged for human review; your complaint will NOT be rejected for this.' : null;\nreturn [{json: {analysis: a}}];"
+      },
+      "id": "67aeac3b-c8de-51dc-8846-58da9a29154a",
+      "name": "Attach duplicate warning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "06012a3d-b911-5eea-825d-0e7ed332c7b1",
+      "name": "Respond (LLM)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/ai/mock-analyze",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.input) }}"
+      },
+      "id": "8afe5e9b-b7e3-5c79-8478-6b62b6189ba6",
+      "name": "Mock AI service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst d = $('Merge input').first().json; const a = J;\na.report.duplicate_warning = d.duplicates.length ? 'Similar report(s) exist. They are flagged for human review; your complaint will NOT be rejected for this.' : null;\nreturn [{json: {analysis: a}}];"
+      },
+      "id": "96698ccc-682c-589f-9718-0943305d381b",
+      "name": "Attach duplicate warning (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "95b62b8d-db40-5cb8-9c73-691c748e9fc5",
+      "name": "Respond (mock)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/ai-analysis. Uses an LLM when OPENAI_API_KEY is set, otherwise the local mock AI service. Output is ADVISORY and labelled for human review. Never determines guilt.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "0ec117ab-500e-594f-8d62-8686eec1b141",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Load complaint + permitted evidence metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load complaint + permitted evidence metadata": {
+      "main": [
+        [
+          {
+            "node": "Duplicate / similarity check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate / similarity check": {
+      "main": [
+        [
+          {
+            "node": "Merge input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge input": {
+      "main": [
+        [
+          {
+            "node": "LLM credentials present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM credentials present?": {
+      "main": [
+        [
+          {
+            "node": "LLM analysis (OpenAI-compatible)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock AI service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM analysis (OpenAI-compatible)": {
+      "main": [
+        [
+          {
+            "node": "Normalise LLM output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise LLM output": {
+      "main": [
+        [
+          {
+            "node": "Guard-rail: strip guilt language",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard-rail: strip guilt language": {
+      "main": [
+        [
+          {
+            "node": "Attach duplicate warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach duplicate warning": {
+      "main": [
+        [
+          {
+            "node": "Respond (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock AI service": {
+      "main": [
+        [
+          {
+            "node": "Attach duplicate warning (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach duplicate warning (mock)": {
+      "main": [
+        [
+          {
+            "node": "Respond (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

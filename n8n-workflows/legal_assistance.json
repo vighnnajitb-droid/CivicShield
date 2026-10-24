@@ -1,0 +1,158 @@
+{
+  "name": "CivicShield - Legal Assistance",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "legal-assistance",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "064df39c-1c1d-53dd-bbc0-028ae7de5b1c",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "3ac272ab-94a6-41fa-939c-5a08938641fb"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/legal-assistance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.body.complaint_id, reason: $json.body.reason}) }}"
+      },
+      "id": "f3727f59-5bf6-5ec3-b196-c22d8baf963b",
+      "name": "Generate summary, options, matches, checklist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_BASE }}/notify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $('Webhook').first().json.body.complaint_id, type: 'legal_assistance', channels: ['email'], skip_inapp: true}) }}"
+      },
+      "id": "3150f525-5af8-5db5-8e02-9f21901b0887",
+      "name": "Notification workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, disclaimer: 'This is general procedural information, not personalized legal advice.'}) }}",
+        "options": {}
+      },
+      "id": "54eed31c-8950-545d-99d0-c18481216097",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/legal-assistance. Generates the case summary, general procedural options, filters the legal-aid directory (free/low-cost first) and a checklist. General procedural information, NOT legal advice.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "478260cf-49c0-513f-bbf9-07ec5df30471",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate summary, options, matches, checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate summary, options, matches, checklist": {
+      "main": [
+        [
+          {
+            "node": "Notification workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

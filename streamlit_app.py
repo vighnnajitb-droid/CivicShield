@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import date
 from html import escape
 
@@ -421,7 +422,7 @@ def evidence(case, can_add):
         name, details, digest, action = st.columns([4, 2, 4, 2])
         name.markdown(f"**{item['original_filename']}**")
         details.caption(f"{item['size']} B · {item['mime']}")
-        digest.code(item["sha256"])
+        digest.caption(f"SHA-256: {item['sha256']}")
         if case.get("can_download_evidence"):
             download_key = f"evidence_bytes_{item['id']}"
             if st.session_state.get(download_key) is None and action.button("Prepare download", key=f"prepare_{item['id']}"):
@@ -457,6 +458,124 @@ def show_legal(legal):
         st.subheader("Checklist")
         for item in legal["checklist"]:
             st.markdown(f"- {item}")
+
+
+def friendly_incident_text(text):
+    text = str(text or "").strip()
+    if "CIVICSHIELD" in text.upper() and "INCIDENT DESCRIPTION" in text.upper():
+        marker = re.search(r"(?:^|\n)\s*\d+\.\s*Incident Description\s*(?:\n|$)", text, re.IGNORECASE)
+        if marker:
+            text = text[marker.end():]
+            next_section = re.search(r"^\s*\d+\.\s+", text, re.MULTILINE)
+            if next_section:
+                text = text[:next_section.start()]
+            text = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    return text or "No incident description is available."
+
+
+def friendly_case_incident(case):
+    report = case.get("citizen_report") or (case.get("ai_analysis") or {}).get("report") or {}
+    incident = str(report.get("incident_summary") or "").strip()
+    if not incident or "CIVICSHIELD" in incident.upper() or "SIMULATED DEMO DATA" in incident.upper():
+        incident = case.get("original_description", "")
+    return friendly_incident_text(incident)[:800]
+
+
+def render_case_summary(summary, heading="Case summary"):
+    st.subheader(heading)
+    st.markdown(f"### {summary.get('title') or 'Complaint summary'}")
+    if summary.get("incident_summary"):
+        st.write(friendly_incident_text(summary["incident_summary"]))
+    status = str(summary.get("current_status", "unknown")).replace("_", " ").title()
+    stage = str(summary.get("stage", "unknown")).replace("_", " ").title()
+    st.caption(f"Current status: {status} · Review stage: {stage}")
+    if summary.get("note"):
+        st.info(summary["note"])
+
+    timeline = summary.get("timeline") or []
+    if timeline:
+        st.markdown("**Incident timeline**")
+        for item in timeline:
+            if isinstance(item, dict):
+                when = item.get("when") or "Date not provided"
+                event = item.get("event") or item.get("description") or "Event recorded"
+                st.markdown(f"- **{when}:** {event}")
+            else:
+                st.markdown(f"- {item}")
+
+    authorities = summary.get("authorities_involved") or []
+    if authorities:
+        names = [f"{item.get('name', 'Authority')} ({item.get('level', 'level not specified')})"
+                 for item in authorities if isinstance(item, dict)]
+        if names:
+            st.markdown("**Authorities involved**")
+            st.write(" · ".join(names))
+
+    for label, key in (("Evidence received", "evidence_inventory"),):
+        entries = summary.get(key) or []
+        if entries:
+            st.markdown(f"**{label}**")
+            for item in entries:
+                if isinstance(item, dict):
+                    st.markdown(f"- {item.get('filename') or 'Evidence file'}")
+
+    for label, key in (("Responses", "responses"), ("Decisions", "decisions"), ("Appeals", "appeals")):
+        entries = summary.get(key) or []
+        if entries:
+            st.markdown(f"**{label}**")
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                heading = item.get("kind") or item.get("outcome") or item.get("status") or label[:-1]
+                detail = item.get("text") or item.get("reasoning") or item.get("grounds")
+                st.markdown(f"- **{str(heading).replace('_', ' ').title()}**")
+                if detail:
+                    st.write(detail)
+
+    for label, key in (("Transfers", "transfers"), ("Escalations", "escalations")):
+        entries = summary.get(key) or []
+        if entries:
+            st.markdown(f"**{label}**")
+            for item in entries:
+                if not isinstance(item, dict):
+                    continue
+                origin, destination = item.get("from") or "Authority", item.get("to") or "Unassigned"
+                st.markdown(f"- {origin} → {destination}")
+                if item.get("reason"):
+                    st.write(item["reason"])
+
+    options = summary.get("next_procedural_options") or []
+    if options:
+        st.markdown("**Possible next steps**")
+        for option in options:
+            if isinstance(option, dict):
+                st.markdown(f"- **{option.get('option', 'Option')}** — {option.get('what', '')}")
+                if option.get("typical_forum"):
+                    st.caption(f"Typical forum: {option['typical_forum']}")
+            else:
+                st.markdown(f"- {option}")
+
+
+def render_local_case_overview(case, error):
+    st.warning(f"The n8n summary could not be generated ({error}). This local overview uses the case details already loaded; it is not an n8n summary.")
+    timeline = [{"when": event.get("created_at"),
+                 "event": f"{str(event.get('to_status') or 'Update').replace('_', ' ').title()} — {event.get('reason') or 'Case status updated.'}"}
+                for event in case.get("status_history", [])]
+    summary = {
+        "title": case.get("title"),
+        "incident_summary": friendly_case_incident(case),
+        "current_status": case.get("status"),
+        "stage": case.get("stage"),
+        "timeline": timeline,
+        "authorities_involved": ([{"name": case["current_authority"], "level": "Current authority"}]
+                                 if case.get("current_authority") else []),
+        "evidence_inventory": [{"filename": item.get("original_filename")} for item in case.get("evidence", [])],
+        "responses": [{"kind": item.get("kind"), "text": item.get("body")} for item in case.get("responses", [])],
+        "decisions": [{"outcome": item.get("outcome"), "reasoning": item.get("reasoning")} for item in case.get("decisions", [])],
+        "appeals": [{"status": item.get("status"), "outcome": item.get("outcome"), "grounds": item.get("grounds")} for item in case.get("appeals", [])],
+        "note": "Allegations are unverified unless the stage is a verified finding.",
+    }
+    render_case_summary(summary, "Local case overview")
 
 
 def action(path, body):
@@ -509,13 +628,15 @@ def case_details(cid):
         st.error(str(exc))
         return
     user = st.session_state.user
-    st.title(f"{case.get('code') or 'Draft'} · {case['title']}")
+    st.title(case.get("title") or "Case details")
+    if case.get("code"):
+        st.caption(f"Complaint reference: {case['code']}")
     st.write(f"Status: **{case['status'].replace('_', ' ')}** · Stage: **{case['stage'].replace('_', ' ')}**")
     st.info("Stages are procedural labels. Allegations are unverified unless the stage is a verified finding. Overdue deadlines never imply guilt.")
     st.write(f"Current authority: {case.get('current_authority') or 'not yet assigned'} · Citizen: {case.get('citizen', {}).get('name', 'Masked')}")
     st.write(f"Acknowledge by: {case.get('ack_deadline') or '—'} · Resolve by: {case.get('resolution_deadline') or '—'}")
-    with st.expander("Original complaint", expanded=True):
-        st.code(f"SHA-256 {case.get('original_hash', '')}")
+    with st.expander("Original complaint and integrity details", expanded=False):
+        st.caption(f"Original text SHA-256: {case.get('original_hash', '')}")
         st.write(case.get("original_description", ""))
     report = case.get("citizen_report") or (case.get("ai_analysis") or {}).get("report") or {}
     if case.get("ai_analysis"):
@@ -571,20 +692,23 @@ def case_details(cid):
     chain = case.get("audit_chain", {})
     (st.success if chain.get("valid") else st.error)(f"Audit chain {'intact' if chain.get('valid') else 'BROKEN'} · {chain.get('events', 0)} events")
     left, right = st.columns(2)
-    if left.button("Show audit events", key=f"audit_{cid}"):
+    if left.button("Show audit events", key=f"audit_button_{cid}"):
         try:
             st.session_state[f"audit_{cid}"] = api("GET", f"/complaints/{cid}/audit")["events"]
         except APIError as exc:
             st.error(str(exc))
-    if right.button("Case summary (n8n)", key=f"summary_{cid}"):
+    if right.button("Case summary (n8n)", key=f"summary_button_{cid}"):
         try:
             st.session_state[f"summary_{cid}"] = api("GET", f"/complaints/{cid}/summary")
+            st.session_state.pop(f"summary_error_{cid}", None)
         except APIError as exc:
-            st.error(str(exc))
+            st.session_state[f"summary_error_{cid}"] = str(exc)
     if st.session_state.get(f"audit_{cid}"):
         render_table(st.session_state[f"audit_{cid}"], "No audit events available.")
     if st.session_state.get(f"summary_{cid}"):
-        st.json(st.session_state[f"summary_{cid}"])
+        render_case_summary(st.session_state[f"summary_{cid}"])
+    elif st.session_state.get(f"summary_error_{cid}"):
+        render_local_case_overview(case, st.session_state[f"summary_error_{cid}"])
 
     if owns:
         st.subheader("Citizen actions")

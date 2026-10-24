@@ -1,0 +1,205 @@
+{
+  "name": "CivicShield - Evidence Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evidence-uploaded",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e338ba31-fe91-5da3-9e03-24bee8f9f186",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "98e92e10-c3b9-41a6-8808-e82d4be15770"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const J = $input.first().json;\nconst crypto = require('crypto');\nconst b = J.body; const buf = Buffer.from(b.content_base64, 'base64');\nconst ext = (b.filename.match(/\\.[A-Za-z0-9]+$/) || [''])[0].toLowerCase();\nconst types = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.pdf':'application/pdf','.mp3':'audio/mpeg','.mp4':'video/mp4','.txt':'text/plain'};\nconst magic = {'image/jpeg':['ffd8ff'],'image/png':['89504e470d0a1a0a'],'application/pdf':['255044462d'],'audio/mpeg':['494433','fffb','fff3','fff2']};\nconst mime = types[ext]; const errs = [];\nconst max = (parseInt($env.MAX_UPLOAD_MB || '5')) * 1024 * 1024;\nif (!mime) errs.push('File type not allowed');\nif (buf.length === 0) errs.push('Empty file');\nif (buf.length > max) errs.push('File too large');\nconst head = buf.subarray(0, 12).toString('hex');\nif (mime === 'video/mp4') { if (buf.subarray(4, 8).toString() !== 'ftyp') errs.push('Content does not match extension'); }\nelse if (mime === 'text/plain') { if (buf.subarray(0, 2048).includes(0)) errs.push('Binary content in .txt'); }\nelse if (mime && !magic[mime].some(m => head.startsWith(m))) errs.push('Content does not match extension');\nconst sha256 = crypto.createHash('sha256').update(buf).digest('hex');\nconst evidence_id = 'EV-' + crypto.randomBytes(6).toString('hex').toUpperCase();\nreturn [{json: {valid: errs.length === 0, errors: errs, mime, size: buf.length, sha256, evidence_id, complaint_id: b.complaint_id, uploader_id: b.uploader_id, filename: b.filename, content_base64: b.content_base64}}];"
+      },
+      "id": "77237536-3db0-5258-a849-f3d4a5c911ab",
+      "name": "Validate, identify type, SHA-256",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "750927ba-4f69-4272-98ad-44d134c11b68",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c2c39711-f80e-5855-98fc-4c45139f8861",
+      "name": "File valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/evidence/register",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.complaint_id, uploader_id: $json.uploader_id, filename: $json.filename, content_base64: $json.content_base64, sha256: $json.sha256, evidence_id: $json.evidence_id}) }}"
+      },
+      "id": "71570d88-cdda-5ae2-9a75-312ed9566306",
+      "name": "Register evidence (store + audit)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, evidence_id: $json.evidence_id, sha256: $json.sha256, mime: $json.mime, size: $json.size, filename: $json.filename}) }}",
+        "options": {}
+      },
+      "id": "2c0b14f3-0fe4-5354-b678-c80ef8478fed",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: false, error: $json.errors.join('; ')}) }}",
+        "options": {}
+      },
+      "id": "339e9f91-92b1-5c90-8d3d-a918c51a0340",
+      "name": "Respond rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/evidence-uploaded. Validates type + magic bytes + size, computes SHA-256, assigns evidence ID, then registers metadata with the backend (which stores privately and writes the audit event). Requires NODE_FUNCTION_ALLOW_BUILTIN=crypto.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "73a8019a-30a0-5c04-9b60-13ac5c7e930b",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate, identify type, SHA-256",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate, identify type, SHA-256": {
+      "main": [
+        [
+          {
+            "node": "File valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File valid?": {
+      "main": [
+        [
+          {
+            "node": "Register evidence (store + audit)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register evidence (store + audit)": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

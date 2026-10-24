@@ -1,0 +1,114 @@
+{
+  "name": "CivicShield - Duplicate Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "duplicate-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4606fe4b-0040-506c-99ba-4f1464287ed2",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "5c1d6459-db30-4629-8e90-69a121414e77"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/internal/duplicates",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({complaint_id: $json.body.complaint_id, store: true}) }}"
+      },
+      "id": "84561cc1-f3b9-53e3-8aa6-83a576991887",
+      "name": "Compare and flag",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "f2377c65-ed69-534b-b5cb-5979cc0413e3",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "POST /webhook/duplicate-check. Compares text, category, jurisdiction and incident date; FLAGS for human review, never auto-rejects.",
+        "height": 160,
+        "width": 420
+      },
+      "id": "9547a96a-9caa-54e8-8106-7ac00c6a9e4f",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Compare and flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare and flag": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
