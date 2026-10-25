@@ -1,7 +1,7 @@
 # CivicShield — Evidence-Backed Government Accountability & Access to Justice
 *"A complaint supported by evidence should not disappear without a trace, and an unresolved case should not be silently buried."*
 
-Track: Social Impact · Stack: React (no-build, CDN) + Streamlit · FastAPI · SQLite (Postgres-ready SQL) · **n8n as the process engine**
+Track: Social Impact · Stack: React (no-build, CDN) · FastAPI · SQLite (Postgres-ready SQL) · **n8n as the process engine**
 
 ## 1. Quick start
 **Docker (recommended):** `cp .env.example .env`, set `JWT_SECRET` and `INTERNAL_API_KEY`, then `docker compose up --build`.
@@ -13,7 +13,6 @@ Then import + activate workflows (once):
 
 - App: http://localhost:8000 · API docs (Swagger): http://localhost:8000/docs · n8n: http://localhost:5678
 - The DB is created and demo data seeded on first start.
-- Optional Streamlit frontend: `pip install -r requirements.txt; streamlit run streamlit_app.py` (set `BACKEND_URL` if the API is not at `http://127.0.0.1:8000`).
 
 ## 2. Test accounts (password `Demo@12345`, demo only)
 | Role | Login |
@@ -25,7 +24,7 @@ Then import + activate workflows (once):
 
 ## 3. Architecture
 ```
-React UI or Streamlit UI ──► FastAPI (auth, RBAC, data, hash-chain) ──► SQLite
+React UI ──► FastAPI (auth, RBAC, data, hash-chain) ──► SQLite
                 │  ▲                                        ▲
    webhooks     ▼  │ /internal API (X-Internal-Key)         │
             n8n workflows ── LLM (optional) / mock AI ───────┘
@@ -69,40 +68,5 @@ PBKDF2-SHA256 (210k) password hashing · JWT with expiry · role checks on every
 2. **Silence → escalation** – Ravi's FIR case is seeded 30 h unacknowledged. Admin → *Run n8n deadline monitor* → escalates to District, notifies Ravi. Use `Admin → demo/expire` (API) + run again to climb to State, Oversight, then legal-aid options.
 3. **Rejection → appeal** – Meena's mutation case: rejected, appeal pending. Log in as `district.rev@demo.gov` → Appeals → *overturned* → decision changes, original preserved.
 
-## 9. Testing
-From the repository root, run `python -m unittest backend.tests.test_core` and `python backend/tests/e2e.py`. The e2e test runs the real API handlers through `backend/tests/harness/fastapi/` and executes the workflow JSON with `backend/tests/harness/n8n_sim.js`; it verifies logic and wiring, not real FastAPI or hosted n8n behavior. The Streamlit frontend is a separate client of the same public `/api` endpoints.
-
-## 10. Streamlit frontend
-Install the pinned root dependencies and run the app:
-
-```powershell
-python -m pip install -r requirements.txt
-$env:BACKEND_URL = "http://127.0.0.1:8000"
-streamlit run streamlit_app.py
-```
-
-On macOS/Linux, export `BACKEND_URL` instead of using PowerShell syntax. Streamlit keeps the JWT in its server-side session and sends authenticated requests to FastAPI. It does not connect directly to SQLite or call n8n. Evidence upload, SHA-256 calculation, Evidence ID generation, authorization, and audit events remain backend/n8n responsibilities. The theme selection is retained in the page query parameter across reloads.
-
-## 11. Public deployment
-The intended hosted layout is Streamlit Community Cloud → Render FastAPI → publicly reachable n8n. Deploy the Streamlit app from the repository root with entry point `streamlit_app.py`. In Streamlit Community Cloud, add this TOML value in the app's **Secrets** settings (local deployments can use the environment variable or `.env`):
-
-```toml
-BACKEND_URL = "https://<your-api>.onrender.com"
-```
-
-The root `requirements.txt` is only for the Streamlit client; the backend continues to use `backend/requirements.txt`.
-
-The root `render.yaml` defines the API service with build command `pip install -r backend/requirements.txt`, start command `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`, and a persistent disk at `/var/data` for SQLite and evidence. The service uses the repository root because FastAPI also serves the existing React static assets. Render persistent disks require a paid service plan; do not deploy this SQLite configuration on ephemeral storage. Configure `INTERNAL_API_KEY` and `N8N_WEBHOOK_BASE` in Render before expecting workflows to run. Keep `JWT_SECRET` secret and stable across deploys.
-
-Deploy n8n separately with persistent storage and HTTPS. Configure its `BACKEND_URL` to the public Render API URL, its `INTERNAL_API_KEY` to exactly the same value used by FastAPI, and its `N8N_WEBHOOK_BASE`/webhook URL to its public HTTPS endpoint. Import and activate every workflow in `n8n-workflows/`. The existing `docker-compose.yml` remains for local development; it is not a public n8n service definition.
-
-## 12. GitHub and sensitive files
-Use `.env.example` as a names-only template; never commit `.env`, Streamlit secrets, passwords, API keys, JWT secrets, generated SQLite files, local virtual environments, or personal evidence. `.gitignore` prevents new local data from being added, but it does not stop Git from including paths that are already tracked. This worktree currently tracks `.venv/`, `data/civicshield.db`, and files under `data/evidence/`. No Git remote is currently configured.
-
-Before publishing, inspect `git status` and untrack these local-only paths while keeping their working copies:
-
-```powershell
-git rm --cached -r .venv data/civicshield.db data/evidence
-```
-
-Then review the staged changes and scrub those files from existing Git history if that history will be published. Do not push or deploy this worktree publicly until the database, evidence, and history review is complete. After creating an empty GitHub repository, add its URL as `origin`, commit the reviewed source, and push the selected branch. Never share secrets in commit messages, source files, or screenshots.
+## 9. Testing — what was actually run (see §10 of docs/HACKATHON.md)
+`python -m unittest tests.test_core` (15 domain tests) and `python tests/e2e.py` (54 checks over HTTP). **Important limits:** the build sandbox had no internet, so FastAPI, uvicorn, React CDN and n8n could not be installed. The e2e test therefore uses (a) `tests/harness/fastapi/` — a tiny stand-in that runs the real `app/main.py` handlers, and (b) `tests/harness/n8n_sim.js` — a subset interpreter that executes the real workflow JSON (nodes, expressions, Code-node JS). They validate logic and wiring, **not** real-FastAPI/real-n8n/browser behaviour. Please verify once on your machine: start real n8n + real uvicorn and walk through the three demo scenarios by hand (`USE_REAL_N8N=1 python backend/tests/e2e.py` skips the n8n simulator but still serves the backend through the stand-in, so it only covers real n8n, not real FastAPI).
