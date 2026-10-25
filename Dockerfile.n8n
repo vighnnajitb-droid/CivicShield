@@ -1,0 +1,3 @@
+FROM n8nio/n8n:latest
+COPY --chown=node:node n8n-workflows /workflows
+CMD ["sh", "-c", "n8n import:workflow --separate --input=/workflows && n8n update:workflow --all --active=true && n8n start"]
